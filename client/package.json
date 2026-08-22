@@ -1,0 +1,20 @@
+{
+  "name": "device2device-client",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "main": "electron/main.ts",
+  "scripts": {
+    "build:renderer": "tsc -p tsconfig.renderer.json",
+    "dev": "npm run build:renderer && tsx electron/launcher.ts"
+  },
+  "dependencies": {
+    "electron": "^37.2.0",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}

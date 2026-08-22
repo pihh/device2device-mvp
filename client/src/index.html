@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  />
+
+  <title>Device 2 Device</title>
+
+  <link
+    rel="stylesheet"
+    href="./style.css"
+  />
+</head>
+
+<body>
+
+  <main>
+
+    <header>
+
+      <h1>
+        Device 2 Device
+      </h1>
+
+      <div
+        id="device"
+        class="device"
+      >
+        Loading...
+      </div>
+
+    </header>
+
+    <section
+      class="pairing"
+    >
+
+      <h2>
+        Pair device
+      </h2>
+
+      <button
+        id="createPair"
+      >
+        Create pairing code
+      </button>
+
+      <div
+        id="pairCode"
+        class="code"
+      >
+      </div>
+
+      <div class="accept">
+
+        <input
+          id="acceptCode"
+          placeholder="Enter pairing code"
+        />
+
+        <button
+          id="acceptPair"
+        >
+          Pair
+        </button>
+
+      </div>
+
+    </section>
+
+    <section
+      class="chat"
+    >
+
+      <div
+        id="messages"
+        class="messages"
+      >
+      </div>
+
+      <div
+        class="composer"
+      >
+
+        <input
+          id="message"
+          placeholder="Message..."
+        />
+
+        <button
+          id="send"
+        >
+          Send
+        </button>
+
+      </div>
+
+    </section>
+
+  </main>
+
+  <script type="module" src="../dist-renderer/renderer.js"></script>
+  ></script>
+
+</body>
+
+</html>
