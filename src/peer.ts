@@ -26,114 +26,175 @@ const RENDEZVOUS =
   process.env.RENDEZVOUS ??
   "http://localhost:3000";
 
+const RENDEZVOUS_HOST =
+  new URL(
+    RENDEZVOUS
+  ).hostname;
+
+const RENDEZVOUS_UDP_PORT =
+  Number(
+    process.env.RENDEZVOUS_UDP_PORT ??
+    4000
+  );
+
 //
-// ------------------------------------------------------------
 // IDENTITY
-// ------------------------------------------------------------
 //
 
-let identity: Identity | undefined =
+let identity =
   getIdentity();
 
 if (!identity) {
-  identity = createIdentity();
+  identity =
+    createIdentity();
 
-  saveIdentity(identity);
-
-  console.log(
-    "Created new device identity."
+  saveIdentity(
+    identity
   );
 }
 
 console.log();
-console.log("=================================");
-console.log(" P2P CHAT");
-console.log("=================================");
+console.log(
+  "================================="
+);
+console.log(
+  " DEVICE 2 DEVICE"
+);
+console.log(
+  "================================="
+);
 console.log();
-console.log("Device:", identity.deviceId);
-console.log();
-
-//
-// ------------------------------------------------------------
-// UDP
-// ------------------------------------------------------------
-//
-
-const socket = dgram.createSocket("udp4");
-
-await new Promise<void>((resolve) => {
-  socket.bind(0, "0.0.0.0", () => {
-    resolve();
-  });
-});
-
-const address = socket.address();
-
-if (typeof address === "string") {
-  throw new Error("Invalid UDP address");
-}
 
 console.log(
-  "UDP port:",
-  address.port
+  "Device:",
+  identity.deviceId
 );
 
 //
-// ------------------------------------------------------------
-// REGISTER
-// ------------------------------------------------------------
+// UDP SOCKET
+//
+
+const socket =
+  dgram.createSocket("udp4");
+
+await new Promise<void>(
+  resolve => {
+
+    socket.bind(
+      0,
+      "0.0.0.0",
+      () => resolve()
+    );
+
+  }
+);
+
+const local =
+  socket.address();
+
+if (
+  typeof local === "string"
+) {
+  throw new Error(
+    "Invalid UDP address"
+  );
+}
+
+console.log(
+  "Local UDP port:",
+  local.port
+);
+
+//
+// REGISTER HTTP
 //
 
 async function register(): Promise<void> {
-  await fetch(
-    `${RENDEZVOUS}/register`,
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json"
-      },
-      body: JSON.stringify({
-        deviceId: identity!.deviceId,
-        publicKey: identity!.publicKey,
-        udpPort: address.port
-      })
-    }
-  );
+
+  const response =
+    await fetch(
+      `${RENDEZVOUS}/register`,
+      {
+        method: "POST",
+
+        headers: {
+          "content-type":
+            "application/json"
+        },
+
+        body: JSON.stringify({
+          deviceId:
+            identity!.deviceId,
+
+          publicKey:
+            identity!.publicKey
+        })
+      }
+    );
+
+  if (!response.ok) {
+    throw new Error(
+      `Register failed: ${response.status}`
+    );
+  }
 }
 
 await register();
 
-setInterval(register, 10_000);
+setInterval(
+  () => {
+    register()
+      .catch(console.error);
+  },
+  10_000
+);
 
 //
-// ------------------------------------------------------------
-// PROTOCOL
-// ------------------------------------------------------------
+// UDP RENDEZVOUS
 //
 
-interface PairRequest {
-  type: "pair-request";
+function sendRendezvousPacket() {
 
-  deviceId: string;
-  publicKey: string;
+  const packet = {
+    type: "rendezvous",
 
-  name: string;
+    deviceId:
+      identity!.deviceId
+  };
 
-  pairingSecret: string;
-
-  nonce: string;
-
-  signature: string;
+  socket.send(
+    Buffer.from(
+      JSON.stringify(packet)
+    ),
+    RENDEZVOUS_UDP_PORT,
+    RENDEZVOUS_HOST
+  );
 }
 
-interface PairResponse {
-  type: "pair-response";
+sendRendezvousPacket();
+
+setInterval(
+  sendRendezvousPacket,
+  5_000
+);
+
+//
+// PACKETS
+//
+
+interface Punch {
+  type: "punch";
+
+  deviceId: string;
+}
+
+interface Hello {
+  type: "hello";
 
   deviceId: string;
   publicKey: string;
 
   nonce: string;
-
   signature: string;
 }
 
@@ -151,311 +212,248 @@ interface ChatMessage {
   >;
 }
 
-interface PingMessage {
-  type: "ping";
-
-  deviceId: string;
-}
-
 type Packet =
-  | PairRequest
-  | PairResponse
-  | ChatMessage
-  | PingMessage;
-
-//
-// ------------------------------------------------------------
-// SEND
-// ------------------------------------------------------------
-//
+  | Punch
+  | Hello
+  | ChatMessage;
 
 function sendPacket(
   packet: Packet,
-  ip: string,
+  host: string,
   port: number
-): void {
-  const data = Buffer.from(
-    JSON.stringify(packet)
-  );
-
+) {
   socket.send(
-    data,
+    Buffer.from(
+      JSON.stringify(packet)
+    ),
     port,
-    ip
+    host
   );
 }
 
 //
-// ------------------------------------------------------------
-// RECEIVE
-// ------------------------------------------------------------
+// RECEIVE UDP
 //
 
 socket.on(
   "message",
-  async (data, remote) => {
+  data => {
+
     let packet: Packet;
 
     try {
-      packet = JSON.parse(
-        data.toString()
-      );
+      packet =
+        JSON.parse(
+          data.toString()
+        );
     } catch {
+      return;
+    }
+
+    //
+    // PUNCH
+    //
+
+    if (
+      packet.type ===
+      "punch"
+    ) {
+
       console.log(
-        "Received invalid packet."
+        `\n📡 UDP received from ${packet.deviceId}`
       );
 
       return;
     }
 
     //
-    // ------------------------------------------------------
-    // PAIR REQUEST
-    // ------------------------------------------------------
+    // HELLO
     //
 
     if (
-      packet.type === "pair-request"
+      packet.type ===
+      "hello"
     ) {
-      console.log();
-      console.log(
-        "Pair request from:",
-        packet.deviceId
-      );
 
-      const signedData =
-        packet.deviceId +
-        packet.publicKey +
-        packet.nonce;
-
-      const valid =
-        verifyData(
-          packet.publicKey,
-          signedData,
-          packet.signature
-        );
-
-      if (!valid) {
-        console.log(
-          "❌ Invalid pairing signature"
-        );
-
-        return;
-      }
-
-      console.log(
-        "✅ Pairing signature valid"
-      );
-
-      console.log();
-      console.log(
-        `Device "${packet.name}" wants to pair.`
-      );
-
-      console.log(
-        "Automatically accepting for MVP..."
-      );
-
-      addTrustedDevice({
-        deviceId:
-          packet.deviceId,
-
-        name:
-          packet.name,
-
-        publicKey:
-          packet.publicKey,
-
-        pairingSecret:
-          packet.pairingSecret
-      });
-
-      const nonce =
-        crypto
-          .randomBytes(32)
-          .toString("hex");
-
-      const responseData =
-        identity!.deviceId +
-        identity!.publicKey +
-        nonce;
-
-      const response: PairResponse = {
-        type: "pair-response",
-
-        deviceId:
-          identity!.deviceId,
-
-        publicKey:
-          identity!.publicKey,
-
-        nonce,
-
-        signature:
-          signData(
-            identity!.privateKey,
-            responseData
-          )
-      };
-
-      sendPacket(
-        response,
-        remote.address,
-        remote.port
-      );
-
-      console.log(
-        "✅ Device paired:"
-        ,
-        packet.deviceId
-      );
-
-      return;
-    }
-
-    //
-    // ------------------------------------------------------
-    // PAIR RESPONSE
-    // ------------------------------------------------------
-    //
-
-    if (
-      packet.type === "pair-response"
-    ) {
-      const signedData =
-        packet.deviceId +
-        packet.publicKey +
-        packet.nonce;
-
-      const valid =
-        verifyData(
-          packet.publicKey,
-          signedData,
-          packet.signature
-        );
-
-      if (!valid) {
-        console.log(
-          "❌ Invalid pair response"
-        );
-
-        return;
-      }
-
-      console.log(
-        "✅ Pair response authenticated."
-      );
-
-      return;
-    }
-
-    //
-    // ------------------------------------------------------
-    // CHAT MESSAGE
-    // ------------------------------------------------------
-    //
-
-    if (
-      packet.type === "message"
-    ) {
-      const device =
+      const trusted =
         getTrustedDevice(
           packet.deviceId
         );
 
-      if (!device) {
+      if (!trusted) {
         console.log(
-          "❌ Message from untrusted device."
+          "\n❌ Untrusted device:"
+          ,
+          packet.deviceId
+        );
+
+        return;
+      }
+
+      const valid =
+        verifyData(
+          packet.publicKey,
+
+          packet.deviceId +
+            packet.nonce,
+
+          packet.signature
+        );
+
+      if (!valid) {
+        console.log(
+          "\n❌ Invalid signature"
+        );
+
+        return;
+      }
+
+      console.log(
+        `\n🔐 Authenticated ${packet.deviceId}`
+      );
+
+      return;
+    }
+
+    //
+    // CHAT
+    //
+
+    if (
+      packet.type ===
+      "message"
+    ) {
+
+      const trusted =
+        getTrustedDevice(
+          packet.deviceId
+        );
+
+      if (!trusted) {
+        console.log(
+          "\n❌ Message from untrusted device"
         );
 
         return;
       }
 
       try {
-        const plaintext =
+
+        const text =
           decryptMessage(
-            device.pairingSecret,
+            trusted.pairingSecret,
             packet.encrypted
           );
 
         console.log();
         console.log(
-          `[${packet.deviceId}] ${plaintext}`
+          `💬 ${text}`
         );
-        console.log("> ");
+        console.log();
 
       } catch {
+
         console.log(
-          "❌ Could not decrypt message."
+          "\n❌ Could not decrypt message"
         );
+
       }
-
-      return;
-    }
-
-    //
-    // ------------------------------------------------------
-    // PING
-    // ------------------------------------------------------
-    //
-
-    if (
-      packet.type === "ping"
-    ) {
-      console.log(
-        `💓 Ping from ${packet.deviceId}`
-      );
-
-      return;
     }
   }
 );
 
 //
-// ------------------------------------------------------------
-// PAIRING
-// ------------------------------------------------------------
+// FIND PEER
 //
 
-async function pair(
-  deviceId: string,
-  name = "My Device"
-): Promise<void> {
+async function getPeer(
+  deviceId: string
+) {
 
-  const peerResponse =
+  const response =
     await fetch(
       `${RENDEZVOUS}/peer/${deviceId}`
     );
 
-  if (!peerResponse.ok) {
+  if (!response.ok) {
     throw new Error(
-      "Peer not found"
+      `Peer unavailable: ${response.status}`
     );
   }
 
-  const peer =
-    await peerResponse.json() as {
-      deviceId: string;
-      publicKey: string;
-      ip: string;
-      port: number;
-    };
+  return await response.json() as {
+    deviceId: string;
+    publicKey: string;
+    address: string;
+    port: number;
+  };
+}
 
-  const pairingSecret =
-    createPairingSecret();
+//
+// CONNECT
+//
+
+async function connect(
+  deviceId: string
+) {
+
+  const peer =
+    await getPeer(
+      deviceId
+    );
+
+  console.log();
+  console.log(
+    "Peer endpoint:"
+  );
+
+  console.log(
+    `${peer.address}:${peer.port}`
+  );
+
+  console.log();
+
+  //
+  // Send multiple packets.
+  //
+  // Both sides need to do this.
+  // This is the basic hole-punching
+  // mechanism.
+  //
+
+  const packet: Punch = {
+    type: "punch",
+
+    deviceId:
+      identity!.deviceId
+  };
+
+  for (
+    let i = 0;
+    i < 20;
+    i++
+  ) {
+
+    sendPacket(
+      packet,
+      peer.address,
+      peer.port
+    );
+
+    await sleep(250);
+  }
+
+  //
+  // Authenticated hello
+  //
 
   const nonce =
     crypto
       .randomBytes(32)
       .toString("hex");
 
-  const signedData =
-    identity!.deviceId +
-    identity!.publicKey +
-    nonce;
-
-  const packet: PairRequest = {
-    type: "pair-request",
+  const hello: Hello = {
+    type: "hello",
 
     deviceId:
       identity!.deviceId,
@@ -463,72 +461,43 @@ async function pair(
     publicKey:
       identity!.publicKey,
 
-    name,
-
-    pairingSecret,
-
     nonce,
 
     signature:
       signData(
         identity!.privateKey,
-        signedData
+
+        identity!.deviceId +
+          nonce
       )
   };
 
   sendPacket(
-    packet,
-    peer.ip,
+    hello,
+    peer.address,
     peer.port
   );
 
-  console.log();
   console.log(
-    "Pair request sent."
-  );
-
-  console.log(
-    "Pairing secret generated."
-  );
-
-  //
-  // Store peer immediately for MVP.
-  //
-  addTrustedDevice({
-    deviceId:
-      peer.deviceId,
-
-    name:
-      "Remote Device",
-
-    publicKey:
-      peer.publicKey,
-
-    pairingSecret
-  });
-
-  console.log(
-    "✅ Device added to trusted devices."
+    "🚀 Connection attempt sent."
   );
 }
 
 //
-// ------------------------------------------------------------
-// CHAT
-// ------------------------------------------------------------
+// SEND CHAT
 //
 
 async function sendMessage(
   deviceId: string,
   text: string
-): Promise<void> {
+) {
 
-  const device =
+  const trusted =
     getTrustedDevice(
       deviceId
     );
 
-  if (!device) {
+  if (!trusted) {
     console.log(
       "❌ Device is not trusted."
     );
@@ -536,48 +505,56 @@ async function sendMessage(
     return;
   }
 
-  const peerResponse =
-    await fetch(
-      `${RENDEZVOUS}/peer/${deviceId}`
-    );
-
-  if (!peerResponse.ok) {
-    console.log(
-      "❌ Peer is offline."
-    );
-
-    return;
-  }
-
   const peer =
-    await peerResponse.json() as {
-      ip: string;
-      port: number;
-    };
+    await getPeer(
+      deviceId
+    );
 
-  const packet: ChatMessage = {
+  const message: ChatMessage = {
     type: "message",
 
     deviceId:
       identity!.deviceId,
 
     messageId:
-      crypto
-        .randomUUID(),
+      crypto.randomUUID(),
 
     timestamp:
       Date.now(),
 
     encrypted:
       encryptMessage(
-        device.pairingSecret,
+        trusted.pairingSecret,
         text
       )
   };
 
+  //
+  // Punch first
+  //
+
+  for (
+    let i = 0;
+    i < 5;
+    i++
+  ) {
+
+    sendPacket(
+      {
+        type: "punch",
+        deviceId:
+          identity!.deviceId
+      },
+      peer.address,
+      peer.port
+    );
+
+    await sleep(100);
+  }
+
   sendPacket(
-    packet,
-    peer.ip,
+    message,
+    peer.address,
     peer.port
   );
 
@@ -587,28 +564,146 @@ async function sendMessage(
 }
 
 //
-// ------------------------------------------------------------
-// LIST DEVICES
-// ------------------------------------------------------------
+// PAIR
 //
 
-function listDevices(): void {
-  const devices =
-    getTrustedDevices();
+async function pair(
+  deviceId: string
+) {
+
+  const peer =
+    await getPeer(
+      deviceId
+    );
+
+  const pairingSecret =
+    createPairingSecret();
+
+  //
+  // For this MVP the secret is
+  // encrypted later.
+  //
+  // We keep this temporarily simple
+  // so we can first prove connectivity.
+  //
+
+  const nonce =
+    crypto
+      .randomBytes(32)
+      .toString("hex");
+
+  const packet = {
+    type: "hello",
+
+    deviceId:
+      identity!.deviceId,
+
+    publicKey:
+      identity!.publicKey,
+
+    nonce,
+
+    signature:
+      signData(
+        identity!.privateKey,
+
+        identity!.deviceId +
+          nonce
+      )
+  };
+
+  //
+  // Store trusted peer.
+  //
+
+  addTrustedDevice({
+    deviceId:
+      peer.deviceId,
+
+    name:
+      "Remote device",
+
+    publicKey:
+      peer.publicKey,
+
+    pairingSecret
+  });
+
+  //
+  // Punch.
+  //
+
+  for (
+    let i = 0;
+    i < 20;
+    i++
+  ) {
+
+    sendPacket(
+      {
+        type: "punch",
+        deviceId:
+          identity!.deviceId
+      },
+      peer.address,
+      peer.port
+    );
+
+    await sleep(250);
+  }
+
+  sendPacket(
+    packet,
+    peer.address,
+    peer.port
+  );
+
+  console.log();
+  console.log(
+    "✅ Pair request sent."
+  );
+}
+
+//
+// QR
+//
+
+function showQr() {
+
+  const payload =
+    JSON.stringify({
+      v: 2,
+
+      deviceId:
+        identity!.deviceId,
+
+      publicKey:
+        identity!.publicKey
+    });
 
   console.log();
 
-  if (!devices.length) {
-    console.log(
-      "No trusted devices."
-    );
+  qrcode.generate(
+    payload,
+    {
+      small: true
+    }
+  );
+}
 
-    return;
-  }
+//
+// DEVICES
+//
+
+function listDevices() {
+
+  console.log();
 
   for (
-    const device of devices
+    const device of
+      getTrustedDevices()
   ) {
+
     console.log(
       `${device.name} | ${device.deviceId}`
     );
@@ -618,39 +713,23 @@ function listDevices(): void {
 }
 
 //
-// ------------------------------------------------------------
-// QR
-// ------------------------------------------------------------
+// UTIL
 //
 
-function showPairingQr(): void {
-  const data = JSON.stringify({
-    v: 2,
-
-    deviceId:
-      identity!.deviceId,
-
-    publicKey:
-      identity!.publicKey
-  });
-
-  console.log();
-  console.log(
-    "Scan this QR from the other device:"
-  );
-
-  qrcode.generate(
-    data,
-    {
-      small: true
-    }
+function sleep(
+  ms: number
+) {
+  return new Promise(
+    resolve =>
+      setTimeout(
+        resolve,
+        ms
+      )
   );
 }
 
 //
-// ------------------------------------------------------------
 // CLI
-// ------------------------------------------------------------
 //
 
 const rl =
@@ -660,6 +739,7 @@ const rl =
   });
 
 console.log();
+
 console.log(
   "Commands:"
 );
@@ -670,6 +750,10 @@ console.log(
 
 console.log(
   "  pair <deviceId>"
+);
+
+console.log(
+  "  connect <deviceId>"
 );
 
 console.log(
@@ -691,60 +775,64 @@ rl.on(
   async line => {
 
     const parts =
-      line.trim().split(/\s+/);
+      line.trim()
+        .split(/\s+/);
 
     const command =
       parts.shift();
 
     try {
 
-      if (
-        command === "qr"
-      ) {
-        showPairingQr();
-      }
+      switch (command) {
 
-      else if (
-        command === "pair"
-        && parts[0]
-      ) {
-        await pair(
-          parts[0]
-        );
-      }
+        case "qr":
+          showQr();
+          break;
 
-      else if (
-        command === "devices"
-      ) {
-        listDevices();
-      }
+        case "pair":
+          if (parts[0]) {
+            await pair(
+              parts[0]
+            );
+          }
+          break;
 
-      else if (
-        command === "send"
-        && parts.length >= 2
-      ) {
-        const deviceId =
-          parts.shift()!;
+        case "connect":
+          if (parts[0]) {
+            await connect(
+              parts[0]
+            );
+          }
+          break;
 
-        const message =
-          parts.join(" ");
+        case "devices":
+          listDevices();
+          break;
 
-        await sendMessage(
-          deviceId,
-          message
-        );
-      }
+        case "send":
 
-      else if (
-        command === "exit"
-      ) {
-        process.exit(0);
-      }
+          if (
+            parts.length >= 2
+          ) {
 
-      else {
-        console.log(
-          "Unknown command."
-        );
+            const deviceId =
+              parts.shift()!;
+
+            await sendMessage(
+              deviceId,
+              parts.join(" ")
+            );
+          }
+
+          break;
+
+        case "exit":
+          process.exit(0);
+
+        default:
+          console.log(
+            "Unknown command."
+          );
       }
 
     } catch (error) {

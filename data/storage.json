@@ -1,8 +1,7 @@
 {
-  "trustedDevices": [],
   "identity": {
-    "deviceId": "9c08472a886b262d",
-    "publicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASvNXWxCSVIABSgbhRJ+ekHxqwekWGM56aavgy5rQ5hA=\n-----END PUBLIC KEY-----\n",
-    "privateKey": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEINOtG2gI+mpNrR+hGSqAnKyljJPOPkdg3L61aZpjQ8c2\n-----END PRIVATE KEY-----\n"
+    "deviceId": "c2c89656d7f4cfcc",
+    "publicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAlGYOOApoACvIVds0uRiL/c/qD1FdIx+6AXHyPZ0nt6M=\n-----END PUBLIC KEY-----\n",
+    "privateKey": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIIu69arpOmb+3qGPKojHxJKnCKmMrfPfr0BUM4s1Lhr4\n-----END PRIVATE KEY-----\n"
   }
 }

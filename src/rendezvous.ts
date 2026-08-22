@@ -1,53 +1,52 @@
 import Fastify from "fastify";
+import dgram from "node:dgram";
 
-const app = Fastify({
-  logger: true
-});
+const HTTP_PORT = 3000;
+const UDP_PORT = 4000;
 
 interface Peer {
   deviceId: string;
   publicKey: string;
-
-  ip: string;
-  port: number;
-
+  address?: string;
+  port?: number;
   lastSeen: number;
 }
 
 const peers = new Map<string, Peer>();
 
+const app = Fastify({
+  logger: true
+});
+
+app.get("/health", async () => {
+  return {
+    ok: true
+  };
+});
+
 app.post<{
   Body: {
     deviceId: string;
     publicKey: string;
-    udpPort: number;
   };
-}>("/register", async (request) => {
+}>("/register", async request => {
   const {
     deviceId,
-    publicKey,
-    udpPort
+    publicKey
   } = request.body;
 
-  const ip =
-    request.headers["x-forwarded-for"]?.toString()
-      ?.split(",")[0]
-      ?.trim()
-    ?? request.ip;
+  const existing = peers.get(deviceId);
 
-  const peer: Peer = {
+  peers.set(deviceId, {
     deviceId,
     publicKey,
-    ip,
-    port: udpPort,
+    address: existing?.address,
+    port: existing?.port,
     lastSeen: Date.now()
-  };
-
-  peers.set(deviceId, peer);
+  });
 
   return {
-    ok: true,
-    deviceId
+    ok: true
   };
 });
 
@@ -56,40 +55,90 @@ app.get<{
     deviceId: string;
   };
 }>("/peer/:deviceId", async (request, reply) => {
-  const peer = peers.get(
-    request.params.deviceId
-  );
+
+  const peer =
+    peers.get(request.params.deviceId);
 
   if (!peer) {
-    return reply.code(404).send({
-      error: "peer_not_found"
-    });
+    return reply
+      .code(404)
+      .send({
+        error: "peer_not_found"
+      });
   }
 
   return peer;
 });
 
-app.get("/peers", async () => {
-  const now = Date.now();
-
-  return [...peers.values()]
-    .filter(peer =>
-      now - peer.lastSeen < 30_000
-    )
-    .map(peer => ({
-      deviceId: peer.deviceId,
-      publicKey: peer.publicKey,
-      ip: peer.ip,
-      port: peer.port,
-      lastSeen: peer.lastSeen
-    }));
-});
-
-app.get("/health", async () => ({
-  ok: true
-}));
-
 await app.listen({
-  host: "0.0.0.0",
-  port: 3000
+  host: "127.0.0.1",
+  port: HTTP_PORT
 });
+
+console.log(
+  `Rendezvous HTTP running on http://127.0.0.1:${HTTP_PORT}`
+);
+
+//
+// UDP rendezvous
+//
+
+const udp =
+  dgram.createSocket("udp4");
+
+udp.on("message", (data, remote) => {
+
+  let packet: any;
+
+  try {
+    packet =
+      JSON.parse(
+        data.toString()
+      );
+  } catch {
+    return;
+  }
+
+  if (
+    packet.type !== "rendezvous"
+  ) {
+    return;
+  }
+
+  const peer =
+    peers.get(
+      packet.deviceId
+    );
+
+  if (!peer) {
+    return;
+  }
+
+  peer.address =
+    remote.address;
+
+  peer.port =
+    remote.port;
+
+  peer.lastSeen =
+    Date.now();
+
+  peers.set(
+    packet.deviceId,
+    peer
+  );
+
+  console.log(
+    `UDP ${packet.deviceId} -> ${remote.address}:${remote.port}`
+  );
+});
+
+udp.bind(
+  UDP_PORT,
+  "0.0.0.0",
+  () => {
+    console.log(
+      `Rendezvous UDP running on :${UDP_PORT}`
+    );
+  }
+);

@@ -16,16 +16,14 @@ interface Storage {
 }
 
 const DATA_DIR = path.resolve("./data");
-const STORAGE_FILE = path.join(DATA_DIR, "storage.json");
 
-function ensureStorage(): void {
+const STORAGE_FILE =
+  path.join(DATA_DIR, "storage.json");
+
+function load(): Storage {
   fs.mkdirSync(DATA_DIR, {
     recursive: true
   });
-}
-
-function load(): Storage {
-  ensureStorage();
 
   if (!fs.existsSync(STORAGE_FILE)) {
     return {
@@ -34,24 +32,36 @@ function load(): Storage {
   }
 
   return JSON.parse(
-    fs.readFileSync(STORAGE_FILE, "utf8")
+    fs.readFileSync(
+      STORAGE_FILE,
+      "utf8"
+    )
   );
 }
 
 function save(storage: Storage): void {
-  ensureStorage();
+  fs.mkdirSync(DATA_DIR, {
+    recursive: true
+  });
 
   fs.writeFileSync(
     STORAGE_FILE,
-    JSON.stringify(storage, null, 2)
+    JSON.stringify(
+      storage,
+      null,
+      2
+    )
   );
 }
 
-export function getIdentity(): Identity | undefined {
+export function getIdentity():
+  Identity | undefined {
   return load().identity;
 }
 
-export function saveIdentity(identity: Identity): void {
+export function saveIdentity(
+  identity: Identity
+): void {
   const storage = load();
 
   storage.identity = identity;
@@ -59,7 +69,8 @@ export function saveIdentity(identity: Identity): void {
   save(storage);
 }
 
-export function getTrustedDevices(): TrustedDevice[] {
+export function getTrustedDevices():
+  TrustedDevice[] {
   return load().trustedDevices;
 }
 
@@ -68,7 +79,9 @@ export function getTrustedDevice(
 ): TrustedDevice | undefined {
   return load()
     .trustedDevices
-    .find(device => device.deviceId === deviceId);
+    .find(
+      d => d.deviceId === deviceId
+    );
 }
 
 export function addTrustedDevice(
@@ -76,15 +89,19 @@ export function addTrustedDevice(
 ): void {
   const storage = load();
 
-  const existingIndex =
+  const index =
     storage.trustedDevices.findIndex(
-      item => item.deviceId === device.deviceId
+      d =>
+        d.deviceId === device.deviceId
     );
 
-  if (existingIndex >= 0) {
-    storage.trustedDevices[existingIndex] = device;
+  if (index >= 0) {
+    storage.trustedDevices[index] =
+      device;
   } else {
-    storage.trustedDevices.push(device);
+    storage.trustedDevices.push(
+      device
+    );
   }
 
   save(storage);
