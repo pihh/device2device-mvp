@@ -1,0 +1,8 @@
+{
+  "trustedDevices": [],
+  "identity": {
+    "deviceId": "9c08472a886b262d",
+    "publicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASvNXWxCSVIABSgbhRJ+ekHxqwekWGM56aavgy5rQ5hA=\n-----END PUBLIC KEY-----\n",
+    "privateKey": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEINOtG2gI+mpNrR+hGSqAnKyljJPOPkdg3L61aZpjQ8c2\n-----END PRIVATE KEY-----\n"
+  }
+}

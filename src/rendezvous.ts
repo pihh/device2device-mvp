@@ -7,8 +7,10 @@ const app = Fastify({
 interface Peer {
   deviceId: string;
   publicKey: string;
+
   ip: string;
   port: number;
+
   lastSeen: number;
 }
 
@@ -18,23 +20,34 @@ app.post<{
   Body: {
     deviceId: string;
     publicKey: string;
-    port: number;
-  }
+    udpPort: number;
+  };
 }>("/register", async (request) => {
-  const { deviceId, publicKey, port } = request.body;
+  const {
+    deviceId,
+    publicKey,
+    udpPort
+  } = request.body;
+
+  const ip =
+    request.headers["x-forwarded-for"]?.toString()
+      ?.split(",")[0]
+      ?.trim()
+    ?? request.ip;
 
   const peer: Peer = {
     deviceId,
     publicKey,
-    ip: request.ip,
-    port,
+    ip,
+    port: udpPort,
     lastSeen: Date.now()
   };
 
   peers.set(deviceId, peer);
 
   return {
-    ok: true
+    ok: true,
+    deviceId
   };
 });
 
@@ -43,7 +56,9 @@ app.get<{
     deviceId: string;
   };
 }>("/peer/:deviceId", async (request, reply) => {
-  const peer = peers.get(request.params.deviceId);
+  const peer = peers.get(
+    request.params.deviceId
+  );
 
   if (!peer) {
     return reply.code(404).send({
@@ -52,6 +67,22 @@ app.get<{
   }
 
   return peer;
+});
+
+app.get("/peers", async () => {
+  const now = Date.now();
+
+  return [...peers.values()]
+    .filter(peer =>
+      now - peer.lastSeen < 30_000
+    )
+    .map(peer => ({
+      deviceId: peer.deviceId,
+      publicKey: peer.publicKey,
+      ip: peer.ip,
+      port: peer.port,
+      lastSeen: peer.lastSeen
+    }));
 });
 
 app.get("/health", async () => ({
